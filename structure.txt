@@ -1,0 +1,23 @@
+page-renamer-app/
+├── backend/
+│   ├── app.py
+│   ├── classifier.py
+│   ├── utils.py
+│   ├── static/
+│   │   └── uploads/
+│   └── data/
+│       └── export.json
+├── frontend/
+│   ├── public/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── ImageGrid.jsx
+│   │   │   ├── Tabs.jsx
+│   │   ├── App.jsx
+│   │   └── index.js
+├── sample_images/
+│   └── [tus imágenes JPG de prueba]
+├── rename_script.py
+├── requirements.txt
+└── README.md
+

@@ -1,47 +1,79 @@
 <script>
-  import svelteLogo from './assets/svelte.svg'
-  import viteLogo from '/vite.svg'
-  import Counter from './lib/Counter.svelte'
+  import { onMount } from 'svelte';
+
+  let images = [];
+  let validated = [];
+
+  // Carga las imágenes desde el backend al montar el componente
+  onMount(async () => {
+    try {
+      const res = await fetch('/api/images');
+      images = await res.json();
+    } catch (error) {
+      console.error('Error cargando imágenes:', error);
+    }
+  });
+
+  // Marca imagen como validada y la mueve a la lista validated
+  function validateImage(img) {
+    img.validated = true;
+    validated = [...validated, img];
+    images = images.filter(i => i !== img);
+  }
+
+  // Exporta JSON con imágenes validadas y nuevos nombres
+  function exportJSON() {
+    const result = validated.map((img, idx) => ({
+      original: img.filename,
+      new_name: `${String(idx + 1).padStart(3, '0')}.jpg`,
+      type: img.type
+    }));
+
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'renamed_pages.json';
+    a.click();
+  }
 </script>
 
-<main>
-  <div>
-    <a href="https://vite.dev" target="_blank" rel="noreferrer">
-      <img src={viteLogo} class="logo" alt="Vite Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank" rel="noreferrer">
-      <img src={svelteLogo} class="logo svelte" alt="Svelte Logo" />
-    </a>
+<h1>📄 Renombrador de páginas</h1>
+
+<h2>Páginas clasificadas</h2>
+{#if images.length === 0}
+  <p>No hay imágenes para mostrar</p>
+{/if}
+{#each images as img}
+  <div style="border: 1px solid #ccc; padding: 10px; margin-bottom: 5px;">
+    <strong>{img.filename}</strong> — tipo: <em>{img.type}</em>
+    <button on:click={() => validateImage(img)} style="margin-left: 10px;">Validar</button>
   </div>
-  <h1>Vite + Svelte</h1>
+{/each}
 
-  <div class="card">
-    <Counter />
+<h2>Páginas validadas</h2>
+{#if validated.length === 0}
+  <p>No hay imágenes validadas aún</p>
+{/if}
+{#each validated as val}
+  <div style="background-color: #d3ffd3; padding: 5px; margin-bottom: 4px;">
+    ✅ {val.filename} — tipo: {val.type}
   </div>
+{/each}
 
-  <p>
-    Check out <a href="https://github.com/sveltejs/kit#readme" target="_blank" rel="noreferrer">SvelteKit</a>, the official Svelte app framework powered by Vite!
-  </p>
-
-  <p class="read-the-docs">
-    Click on the Vite and Svelte logos to learn more
-  </p>
-</main>
+{#if validated.length > 0}
+  <button on:click={exportJSON} style="margin-top: 20px; padding: 10px 15px; font-weight: bold;">
+    Exportar JSON
+  </button>
+{/if}
 
 <style>
-  .logo {
-    height: 6em;
-    padding: 1.5em;
-    will-change: filter;
-    transition: filter 300ms;
+  :global(body) {
+    font-family: Arial, sans-serif;
+    background: #f9f9f9;
+    padding: 2rem;
   }
-  .logo:hover {
-    filter: drop-shadow(0 0 2em #646cffaa);
-  }
-  .logo.svelte:hover {
-    filter: drop-shadow(0 0 2em #ff3e00aa);
-  }
-  .read-the-docs {
-    color: #888;
+  button {
+    cursor: pointer;
   }
 </style>

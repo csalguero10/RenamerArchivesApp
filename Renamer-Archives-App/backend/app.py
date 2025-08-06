@@ -1,10 +1,13 @@
 from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS  # <-- importar CORS
 from werkzeug.utils import secure_filename
 import os
-from backend.classifier import classify_image
-from backend.utils import save_metadata, load_metadata
+from classifier import classify_image
+from utils import save_metadata, load_metadata
 
 app = Flask(__name__)
+CORS(app)  # <-- habilitar CORS para todas las rutas
+
 UPLOAD_FOLDER = 'static/uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -46,4 +49,4 @@ def export():
     return send_from_directory('data', 'export.json', as_attachment=True)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5000)

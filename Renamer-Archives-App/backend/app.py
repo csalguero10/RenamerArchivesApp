@@ -1,34 +1,49 @@
 from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS  # <-- importar CORS
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
-from classifier import classify_image
-from utils import save_metadata, load_metadata
+import json
 
 app = Flask(__name__)
-CORS(app)  # <-- habilitar CORS para todas las rutas
+CORS(app)  # habilita CORS para todos los dominios
 
-UPLOAD_FOLDER = 'static/uploads'
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+UPLOAD_FOLDER = 'backend/static/uploads'
+DATA_FOLDER = 'backend/data'
+METADATA_FILE = os.path.join(DATA_FOLDER, 'metadata.json')
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(DATA_FOLDER, exist_ok=True)
+
+def load_metadata():
+    if os.path.exists(METADATA_FILE):
+        with open(METADATA_FILE, 'r') as f:
+            return json.load(f)
+    return []
+
+def save_metadata(data):
+    with open(METADATA_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
     files = request.files.getlist('files')
-    responses = []
+    metadata = load_metadata()
+
     for file in files:
         filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
         file.save(filepath)
-        img_type = classify_image(filepath)
-        responses.append({
+        # Aquí puedes agregar la función de clasificación real o dejarlo vacío
+        file_type = 'texto'  # ejemplo estático, puedes reemplazarlo con clasificación automática
+        metadata.append({
             'filename': filename,
             'path': filepath,
-            'type': img_type,
+            'type': file_type,
             'validated': False,
             'page_number': None
         })
-    save_metadata(responses)
-    return jsonify(responses)
+    save_metadata(metadata)
+    return jsonify(metadata)
 
 @app.route('/images', methods=['GET'])
 def list_images():
@@ -45,8 +60,12 @@ def validate_image():
     return jsonify({"message": "updated"})
 
 @app.route('/export', methods=['GET'])
-def export():
-    return send_from_directory('data', 'export.json', as_attachment=True)
+def export_metadata():
+    return send_from_directory(DATA_FOLDER, 'metadata.json', as_attachment=True)
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

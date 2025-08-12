@@ -1,23 +1,40 @@
-page-renamer-app/
+book-image-classifier/
 ├── backend/
-│   ├── app.py
-│   ├── classifier.py
-│   ├── utils.py
-│   ├── static/
-│   │   └── uploads/
-│   └── data/
-│       └── export.json
+│   ├── app.py                 # Aplicación Flask principal
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── classifier.py      # Lógica de clasificación automática
+│   │   └── page_numbering.py  # Sistema de numeración
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   ├── image_processing.py
+│   │   └── ocr_handler.py
+│   ├── uploads/               # Directorio para imágenes subidas
+│   ├── exports/              # Directorio para archivos exportados
+│   ├── requirements.txt      # Dependencias Python
+│   └── config.py            # Configuración
 ├── frontend/
-│   ├── public/
 │   ├── src/
-│   │   ├── components/
-│   │   │   ├── ImageGrid.jsx
-│   │   │   ├── Tabs.jsx
-│   │   ├── App.jsx
-│   │   └── index.js
-├── sample_images/
-│   └── [tus imágenes JPG de prueba]
-├── rename_script.py
-├── requirements.txt
-└── README.md
-
+│   │   ├── lib/
+│   │   │   ├── components/
+│   │   │   │   ├── ImageGallery.svelte
+│   │   │   │   ├── ImageViewer.svelte
+│   │   │   │   ├── MetadataPanel.svelte
+│   │   │   │   ├── FilterPanel.svelte
+│   │   │   │   └── ExportPanel.svelte
+│   │   │   ├── stores/
+│   │   │   │   └── imageStore.js
+│   │   │   └── utils/
+│   │   │       └── api.js
+│   │   ├── routes/
+│   │   │   └── +page.svelte
+│   │   └── app.html
+│   ├── static/
+│   ├── package.json
+│   ├── svelte.config.js
+│   └── vite.config.js
+├── shared/
+│   └── types.py             # Tipos y constantes compartidas
+├── README.md
+├── .gitignore
+└── docker-compose.yml       # Para deployment opcional

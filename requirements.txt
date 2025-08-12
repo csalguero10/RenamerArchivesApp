@@ -1,6 +1,0 @@
-Flask
-flask-cors
-werkzeug
-pillow
-scikit-learn
-numpy

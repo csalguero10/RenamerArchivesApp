@@ -23,23 +23,15 @@ class PageNumbering:
         ]
     
     def auto_number_pages(self, images_db: Dict) -> None:
-        """
-        Numerar páginas automáticamente basándose en orden y tipo
-        
-        Args:
-            images_db (Dict): Base de datos de imágenes
-        """
-        # Ordenar imágenes por nombre de archivo
+        """Numera páginas, manejando el caso de que no haya imágenes."""
+        if not images_db:
+            # Si no hay imágenes, no hay nada que hacer.
+            return
+
         sorted_images = sorted(
             images_db.values(),
             key=lambda x: x['original_filename']
         )
-        
-        # Primera pasada: identificar estructura del libro
-        structure = self._analyze_book_structure(sorted_images)
-        
-        # Segunda pasada: aplicar numeración
-        self._apply_numbering(sorted_images, structure)
     
     def _analyze_book_structure(self, images: List[Dict]) -> Dict:
         """

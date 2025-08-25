@@ -6,7 +6,10 @@ from datetime import datetime
 import uuid
 from werkzeug.utils import secure_filename
 from PIL import Image
+import zipfile
+import io
 
+# Importaciones de módulos
 from models.classifier import ImageClassifier
 from models.page_numbering import PageNumbering
 from utils.image_processing import ImageProcessor
@@ -16,284 +19,197 @@ app = Flask(__name__)
 app.config.from_object(Config)
 CORS(app)
 
-# Inicializar componentes
-classifier = ImageClassifier()
-page_numberer = PageNumbering()
-image_processor = ImageProcessor()
+# --- Componentes de la aplicación ---
+try:
+    classifier = ImageClassifier()
+    page_numberer = PageNumbering()
+    image_processor = ImageProcessor()
+except Exception as e:
+    raise RuntimeError(f"Failed to initialize application components: {e}")
 
-# Almacenamiento en memoria para demo (en producción usar base de datos)
+# --- Base de Datos en Memoria (para desarrollo) ---
 images_db = {}
+
+# --- Funciones de Ayuda ---
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+# --- Rutas de la API ---
 
 @app.route('/api/upload', methods=['POST'])
 def upload_images():
-    """Cargar múltiples imágenes y clasificarlas automáticamente"""
     if 'files' not in request.files:
-        return jsonify({'error': 'No files provided'}), 400
+        return jsonify({'error': 'No se proporcionaron archivos en la clave "files"'}), 400
     
     files = request.files.getlist('files')
+    if not files or all(f.filename == '' for f in files):
+        return jsonify({'error': 'No se seleccionó ningún archivo'}), 400
+        
     results = []
-    
     for file in files:
-        if file.filename == '':
-            continue
-            
         if file and allowed_file(file.filename):
-            # Generar ID único para la imagen
-            image_id = str(uuid.uuid4())
-            
-            # Guardar archivo
-            filename = secure_filename(file.filename)
-            original_filename = filename
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
-            
-            # Procesamiento inicial de imagen
             try:
+                image_id = str(uuid.uuid4())
+                filename = secure_filename(file.filename)
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"{image_id}_{filename}")
+                file.save(filepath)
+
                 image_info = image_processor.get_image_info(filepath)
+                classification = classifier.classify_image(filepath, filename)
                 
-                # Clasificación automática
-                classification = classifier.classify_image(filepath, original_filename)
-                
-                # Crear registro
                 image_record = {
                     'id': image_id,
-                    'original_filename': original_filename,
+                    'original_filename': filename,
                     'filepath': filepath,
                     'type': classification['type'],
                     'confidence': classification['confidence'],
                     'validated': False,
                     'page_number': None,
-                    'number_type': 'arabic',  # 'arabic' | 'roman'
-                    'number_exception': '',   # 'bis', 'ter', etc.
-                    'phantom_number': False,  # [ ]
+                    'number_type': 'arabic',
+                    'number_exception': '',
+                    'phantom_number': False,
                     'created_at': datetime.now().isoformat(),
-                    'width': image_info['width'],
-                    'height': image_info['height'],
-                    'size_bytes': image_info['size_bytes']
+                    **image_info
                 }
                 
                 images_db[image_id] = image_record
-                results.append({
-                    'id': image_id,
-                    'original_filename': original_filename,
-                    'type': classification['type'],
-                    'confidence': classification['confidence']
-                })
-                
+                results.append(image_record)
             except Exception as e:
-                return jsonify({'error': f'Error processing {filename}: {str(e)}'}), 500
-    
-    # Auto-numerar páginas después de la carga
+                app.logger.error(f"Error procesando el archivo {file.filename}: {e}")
+
+    if not results:
+        return jsonify({'error': 'Ninguno de los archivos pudo ser procesado.'}), 400
+
     try:
+        # AQUÍ ESTÁ LA CORRECCIÓN
         page_numberer.auto_number_pages(images_db)
     except Exception as e:
-        print(f"Warning: Auto-numbering failed: {e}")
-    
+        app.logger.warning(f"La auto-numeración falló después de la carga: {e}")
+
+    all_images = sorted(list(images_db.values()), key=lambda x: x['original_filename'])
     return jsonify({
-        'message': f'Successfully uploaded {len(results)} images',
-        'images': results
-    })
+        'message': f'Se cargaron y procesaron {len(results)} imágenes.',
+        'images': all_images
+    }), 201
+
 
 @app.route('/api/images', methods=['GET'])
 def get_images():
-    """Obtener lista de todas las imágenes con filtros opcionales"""
-    validated = request.args.get('validated')
-    image_type = request.args.get('type')
-    
-    filtered_images = []
-    
-    for image in images_db.values():
-        # Aplicar filtros
-        if validated is not None:
-            if validated.lower() == 'true' and not image['validated']:
-                continue
-            if validated.lower() == 'false' and image['validated']:
-                continue
-        
-        if image_type and image['type'] != image_type:
-            continue
-            
-        filtered_images.append(image)
-    
-    # Ordenar por nombre de archivo
-    filtered_images.sort(key=lambda x: x['original_filename'])
-    
-    return jsonify({
-        'images': filtered_images,
-        'total': len(filtered_images)
-    })
+    all_images = sorted(list(images_db.values()), key=lambda x: x['original_filename'])
+    return jsonify({'images': all_images, 'total': len(all_images)})
 
-@app.route('/api/images/<image_id>', methods=['GET'])
-def get_image(image_id):
-    """Obtener información de una imagen específica"""
-    if image_id not in images_db:
-        return jsonify({'error': 'Image not found'}), 404
-    
-    return jsonify(images_db[image_id])
-
-@app.route('/api/images/<image_id>', methods=['PUT'])
+@app.route('/api/images/<string:image_id>', methods=['PUT'])
 def update_image(image_id):
-    """Actualizar metadatos de una imagen"""
     if image_id not in images_db:
-        return jsonify({'error': 'Image not found'}), 404
+        return jsonify({'error': 'Imagen no encontrada'}), 404
     
     data = request.json
+    if not data:
+        return jsonify({'error': 'No se proporcionaron datos para actualizar'}), 400
+        
     image = images_db[image_id]
-    
-    # Campos actualizables
-    updateable_fields = [
-        'type', 'page_number', 'number_type', 'number_exception', 
-        'phantom_number', 'validated'
-    ]
+    updateable_fields = ['type', 'page_number', 'number_type', 'number_exception', 'phantom_number', 'validated']
     
     for field in updateable_fields:
         if field in data:
             image[field] = data[field]
-    
+            
     return jsonify(image)
 
-@app.route('/api/images/<image_id>/file', methods=['GET'])
-def get_image_file(image_id):
-    """Servir archivo de imagen"""
-    if image_id not in images_db:
-        return jsonify({'error': 'Image not found'}), 404
+@app.route('/api/images/bulk-update', methods=['PUT'])
+def bulk_update_images():
+    data = request.json
+    if not data or 'image_ids' not in data or 'updates' not in data:
+        return jsonify({'error': 'Formato de petición inválido.'}), 400
     
-    image = images_db[image_id]
-    directory = os.path.dirname(image['filepath'])
-    filename = os.path.basename(image['filepath'])
+    image_ids = data['image_ids']
+    updates = data['updates']
+    updated_images = []
     
-    return send_from_directory(directory, filename)
+    for image_id in image_ids:
+        if image_id in images_db:
+            image = images_db[image_id]
+            for field, value in updates.items():
+                if field in ['type', 'page_number', 'validated']:
+                    image[field] = value
+            updated_images.append(image)
 
-@app.route('/api/classify/<image_id>', methods=['POST'])
-def reclassify_image(image_id):
-    """Re-clasificar una imagen específica"""
-    if image_id not in images_db:
-        return jsonify({'error': 'Image not found'}), 404
-    
-    image = images_db[image_id]
-    
-    try:
-        classification = classifier.classify_image(
-            image['filepath'], 
-            image['original_filename']
-        )
-        
-        image['type'] = classification['type']
-        image['confidence'] = classification['confidence']
-        image['validated'] = False  # Reset validation after reclassification
-        
-        return jsonify({
-            'id': image_id,
-            'type': classification['type'],
-            'confidence': classification['confidence']
-        })
-        
-    except Exception as e:
-        return jsonify({'error': f'Classification failed: {str(e)}'}), 500
-
-@app.route('/api/validate/<image_id>', methods=['POST'])
-def validate_image(image_id):
-    """Marcar una imagen como validada"""
-    if image_id not in images_db:
-        return jsonify({'error': 'Image not found'}), 404
-    
-    images_db[image_id]['validated'] = True
-    return jsonify({'message': 'Image validated successfully'})
-
-@app.route('/api/renumber', methods=['POST'])
-def renumber_pages():
-    """Renumerar páginas automáticamente"""
-    try:
-        page_numberer.auto_number_pages(images_db)
-        return jsonify({'message': 'Pages renumbered successfully'})
-    except Exception as e:
-        return jsonify({'error': f'Renumbering failed: {str(e)}'}), 500
-
-@app.route('/api/export', methods=['GET'])
-def export_metadata():
-    """Exportar metadatos en formato JSON"""
-    export_data = []
-    
-    for image in images_db.values():
-        # Generar nuevo nombre de archivo
-        new_filename = generate_new_filename(image)
-        
-        export_record = {
-            'original_filename': image['original_filename'],
-            'new_filename': new_filename,
-            'type': image['type'],
-            'validated': image['validated'],
-            'page_number': str(image['page_number']) if image['page_number'] else 'False'
-        }
-        
-        export_data.append(export_record)
-    
-    # Guardar archivo de exportación
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    export_filename = f'metadata_export_{timestamp}.json'
-    export_path = os.path.join(app.config['EXPORT_FOLDER'], export_filename)
-    
-    with open(export_path, 'w', encoding='utf-8') as f:
-        json.dump(export_data, f, indent=2, ensure_ascii=False)
-    
     return jsonify({
-        'export_file': export_filename,
-        'data': export_data,
-        'total_images': len(export_data)
+        'message': f'Se actualizaron {len(updated_images)} imágenes.',
+        'updated_images': updated_images
     })
 
-@app.route('/api/stats', methods=['GET'])
-def get_stats():
-    """Obtener estadísticas del proyecto"""
-    stats = {
-        'total_images': len(images_db),
-        'validated': sum(1 for img in images_db.values() if img['validated']),
-        'pending': sum(1 for img in images_db.values() if not img['validated']),
-        'by_type': {}
-    }
+@app.route('/api/images/<string:image_id>/file', methods=['GET'])
+def get_image_file(image_id):
+    if image_id not in images_db:
+        return jsonify({'error': 'Imagen no encontrada'}), 404
     
-    # Contar por tipo
-    for image in images_db.values():
-        image_type = image['type']
-        if image_type not in stats['by_type']:
-            stats['by_type'][image_type] = 0
-        stats['by_type'][image_type] += 1
-    
-    return jsonify(stats)
+    image = images_db[image_id]
+    try:
+        directory = os.path.dirname(image['filepath'])
+        filename = os.path.basename(image['filepath'])
+        return send_from_directory(directory, filename)
+    except FileNotFoundError:
+        return jsonify({'error': 'El archivo de la imagen no se encuentra en el servidor'}), 404
 
-def allowed_file(filename):
-    """Verificar si el archivo tiene una extensión permitida"""
-    return ('.' in filename and 
-            filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS'])
+@app.route('/api/export', methods=['POST'])
+def export_images():
+    data = request.json
+    if not data or 'images' not in data or 'metadata' not in data:
+        return jsonify({'error': 'Formato de petición de exportación inválido'}), 400
 
-def generate_new_filename(image):
-    """Generar nuevo nombre de archivo según las especificaciones"""
-    base_name = os.path.splitext(image['original_filename'])[0]
-    extension = os.path.splitext(image['original_filename'])[1]
-    
-    # Agregar sufijo de tipo
-    new_name = f"{base_name} {image['type']}"
-    
-    # Agregar número de página si aplica
-    if image['page_number'] is not None:
-        page_num = image['page_number']
-        
-        # Manejar números fantasma
-        if image['phantom_number']:
-            page_num = f"[{page_num}]"
-        
-        # Agregar excepción si existe
-        if image['number_exception']:
-            page_num = f"{page_num} {image['number_exception']}"
-        
-        new_name += f" p {page_num}"
-    
-    return f"{new_name}{extension}"
+    image_ids_to_export = data['images']
+    metadata_list = data['metadata']
+    config = data.get('config', {})
+
+    if not image_ids_to_export:
+        return jsonify({'error': 'No hay imágenes para exportar'}), 400
+
+    try:
+        metadata_map = {item['id']: item for item in metadata_list}
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        zip_filename = f"book-export-{timestamp}.zip"
+        zip_filepath = os.path.join(app.config['EXPORT_FOLDER'], zip_filename)
+
+        with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            if config.get('includeMetadata', True):
+                zipf.writestr('metadata.json', json.dumps(metadata_list, indent=4))
+
+            if config.get('includeImages', True):
+                for image_id in image_ids_to_export:
+                    if image_id in images_db and image_id in metadata_map:
+                        image_record = images_db[image_id]
+                        metadata_item = metadata_map[image_id]
+                        
+                        filepath = image_record['filepath']
+                        arcname = metadata_item.get('new_filename', image_record['original_filename'])
+                        
+                        if os.path.exists(filepath):
+                            zipf.write(filepath, arcname=arcname)
+                        else:
+                            app.logger.warning(f"Archivo no encontrado para exportar: {filepath}")
+
+        download_url = f"/exports/{zip_filename}"
+        return jsonify({'success': True, 'download_url': download_url})
+
+    except Exception as e:
+        app.logger.error(f"Error durante la exportación: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Error interno durante la exportación: {e}'}), 500
+
+@app.route('/exports/<path:filename>')
+def download_export_file(filename):
+    return send_from_directory(
+        app.config['EXPORT_FOLDER'],
+        filename,
+        as_attachment=True
+    )
 
 if __name__ == '__main__':
-    # Crear directorios necesarios
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(app.config['EXPORT_FOLDER'], exist_ok=True)
     
     app.run(debug=True, host='0.0.0.0', port=5001)
-

@@ -49,7 +49,7 @@
 		let newName = `${baseName} ${image.type}`;
 
 		if (image.page_number && image.page_number !== 'False' && image.page_number !== false) {
-			if (image.ghost_number) { // CORREGIDO: Se usa 'ghost_number'
+			if (image.phantom_number) { // CORREGIDO: Se usa 'ghost_number'
 				newName += ` [${image.page_number}]`;
 			} else {
 				newName += ` p ${image.page_number}`;
@@ -81,12 +81,13 @@
 		try {
 			// Generar metadata
 			const metadata = imagesToExport.map(img => ({
+				id: img.id, // <-- AÑADIR ESTA LÍNEA ES CRUCIAL
 				original_filename: img.original_filename,
 				new_filename: generateNewFilename(img),
 				type: img.type,
 				validated: img.validated,
 				page_number: img.page_number || null,
-				ghost_number: img.ghost_number || false
+				phantom_number: img.phantom_number || false
 			}));
 
 			exportStatus = 'exporting';
